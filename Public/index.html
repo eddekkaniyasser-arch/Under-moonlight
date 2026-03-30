@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Romantic Cards</title>
+<style>
+body { font-family: Arial; text-align:center; background:#fff0f6; padding:20px;}
+h2{margin-bottom:10px;}
+#card{margin:20px auto; padding:20px; width:90%; max-width:400px; min-height:150px; background:#ffd6e6; border-radius:12px; cursor:pointer; transition:0.6s; perspective:1000px;}
+.card-inner{transition: transform 0.6s; transform-style: preserve-3d; position:relative; width:100%; height:100%;}
+.card-front, .card-back{position:absolute; width:100%; height:100%; backface-visibility:hidden; display:flex; justify-content:center; align-items:center; border-radius:12px; font-size:1.2rem;}
+.card-back{transform: rotateY(180deg); background:#ffe6e6;}
+.card.flipped .card-inner{transform: rotateY(180deg);}
+button, input{margin:5px; padding:10px 15px; font-size:1rem; border-radius:8px; border:none; background:#ff4081; color:white; cursor:pointer;}
+#attractionMeter{width:80%; height:20px; background:#ddd; margin:10px auto; border-radius:10px;}
+#attractionFill{height:100%; width:0; background:#ff4081; transition:width 0.5s;}
+</style>
+</head>
+<body>
+
+<h2>Live Romantic Cards 💖</h2>
+<input type="text" id="roomInput" placeholder="Enter Room ID">
+<button id="joinBtn">Join Room</button>
+
+<div id="card" style="display:none">
+  <div class="card-inner">
+    <div class="card-front">Tap to reveal!</div>
+    <div class="card-back"></div>
+  </div>
+</div>
+
+<div>
+  <button id="nextBtn" style="display:none">Next Card</button>
+  <button id="recordBtn" style="display:none">🎤 Record Answer</button>
+  <button id="playBtn" style="display:none">▶️ Play Last Answer</button>
+</div>
+
+<div id="attractionMeter"><div id="attractionFill"></div></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket = io();
+let roomId = '';
+let lastRecording = null;
+let mediaRecorder, audioChunks=[];
+let attractionScore = 0;
+
+const card = document.getElementById('card');
+const cardInner = card.querySelector('.card-inner');
+const cardBack = card.querySelector('.card-back');
+const nextBtn = document.getElementById('nextBtn');
+const recordBtn = document.getElementById('recordBtn');
+const playBtn = document.getElementById('playBtn');
+const attractionFill = document.getElementById('attractionFill');
+const joinBtn = document.getElementById('joinBtn');
+const roomInput = document.getElementById('roomInput');
+
+let currentCard = {};
+
+// ================== Join Room ==================
+joinBtn.addEventListener('click', ()=>{
+  if(!roomInput.value) return alert('Enter a room ID');
+  roomId = roomInput.value;
+  socket.emit('joinRoom', roomId);
+
+  // Show game UI
+  card.style.display='block';
+  nextBtn.style.display='inline-block';
+  recordBtn.style.display='inline-block';
+  playBtn.style.display='inline-block';
+  joinBtn.style.display='none';
+  roomInput.style.display='none';
+});
+
+// ================== Receive Card ==================
+socket.on('showCard', cardData=>{
+  currentCard = cardData;
+  cardBack.textContent = cardData.text;
+  cardInner.classList.remove('flipped');
+});
+
+// ================== Next Card ==================
+nextBtn.addEventListener('click', ()=>{
+  socket.emit('nextCard', roomId, currentCard || {text:"Loading..."});
+});
+
+// ================== Card Flip ==================
+card.addEventListener('click', ()=>{
+  cardInner.classList.toggle('flipped');
+  if(cardInner.classList.contains('flipped')){
+    attractionScore += currentCard.score || 3;
+    if(attractionScore>100) attractionScore=100;
+    attractionFill.style.width = attractionScore+'%';
+  }
+});
+
+// ================== Voice Recording ==================
+recordBtn.addEventListener('click', async ()=>{
+  if(mediaRecorder && mediaRecorder.state==='recording'){
+    mediaRecorder.stop();
+    recordBtn.textContent='🎤 Record Answer';
+  } else {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.start();
+    audioChunks=[];
+    mediaRecorder.ondataavailable=e=>audioChunks.push(e.data);
+    mediaRecorder.onstop=e=>{
+      lastRecording = new Blob(audioChunks,{type:'audio/mp3'});
+      socket.emit('answer', roomId, {audio:'recorded', text:currentCard.text});
+    };
+    recordBtn.textContent='⏹️ Stop Recording';
+  }
+});
+
+playBtn.addEventListener('click', ()=>{
+  if(lastRecording){
+    const audioURL = URL.createObjectURL(lastRecording);
+    new Audio(audioURL).play();
+  }
+});
+</script>
+
+</body>
+</html>
